@@ -12,12 +12,20 @@ pub enum PkgFmt {
     Tar,
     /// Download format is TAR + Bzip2
     Tbz2,
+    /// Download format is Bzip2
+    Bz2,
     /// Download format is TGZ (TAR + GZip)
     Tgz,
+    /// Download format is GZ (GZip)
+    Gz,
     /// Download format is TAR + XZ
     Txz,
+    /// Download format is XZ
+    Xz,
     /// Download format is TAR + Zstd
     Tzstd,
+    /// Download format is ZST (zstd)
+    Zst,
     /// Download format is Zip
     Zip,
     /// Download format is raw / binary
@@ -36,9 +44,13 @@ impl PkgFmt {
         match self {
             PkgFmt::Tar => PkgFmtDecomposed::Tar(TarBasedFmt::Tar),
             PkgFmt::Tbz2 => PkgFmtDecomposed::Tar(TarBasedFmt::Tbz2),
+            PkgFmt::Bz2 => PkgFmtDecomposed::Bz2,
             PkgFmt::Tgz => PkgFmtDecomposed::Tar(TarBasedFmt::Tgz),
+            PkgFmt::Gz => PkgFmtDecomposed::Gz,
             PkgFmt::Txz => PkgFmtDecomposed::Tar(TarBasedFmt::Txz),
+            PkgFmt::Xz => PkgFmtDecomposed::Xz,
             PkgFmt::Tzstd => PkgFmtDecomposed::Tar(TarBasedFmt::Tzstd),
+            PkgFmt::Zst => PkgFmtDecomposed::Zst,
             PkgFmt::Bin => PkgFmtDecomposed::Bin,
             PkgFmt::Zip => PkgFmtDecomposed::Zip,
         }
@@ -53,9 +65,13 @@ impl PkgFmt {
         match self {
             PkgFmt::Tar => &[".tar"],
             PkgFmt::Tbz2 => &[".tbz2", ".tar.bz2"],
+            PkgFmt::Bz2 => &[".bz2"],
             PkgFmt::Tgz => &[".tgz", ".tar.gz"],
+            PkgFmt::Gz => &[".gz"],
             PkgFmt::Txz => &[".txz", ".tar.xz"],
+            PkgFmt::Xz => &[".xz"],
             PkgFmt::Tzstd => &[".tzstd", ".tzst", ".tar.zst"],
+            PkgFmt::Zst => &[".zst"],
             PkgFmt::Bin => {
                 if is_windows {
                     &[".bin", "", ".exe"]
@@ -75,16 +91,16 @@ impl PkgFmt {
             "tar" => Some(PkgFmt::Tar),
 
             "tbz2" => Some(PkgFmt::Tbz2),
-            "bz2" if it.next() == Some("tar") => Some(PkgFmt::Tbz2),
+            "bz2" => Some(PkgFmt::Bz2),
 
             "tgz" => Some(PkgFmt::Tgz),
-            "gz" if it.next() == Some("tar") => Some(PkgFmt::Tgz),
+            "gz" => Some(PkgFmt::Gz),
 
             "txz" => Some(PkgFmt::Txz),
-            "xz" if it.next() == Some("tar") => Some(PkgFmt::Txz),
+            "xz" => Some(PkgFmt::Xz),
 
             "tzstd" | "tzst" => Some(PkgFmt::Tzstd),
-            "zst" if it.next() == Some("tar") => Some(PkgFmt::Tzstd),
+            "zst" => Some(PkgFmt::Zst),
 
             "exe" | "bin" => Some(PkgFmt::Bin),
             "zip" => Some(PkgFmt::Zip),
@@ -92,10 +108,25 @@ impl PkgFmt {
             _ => None,
         };
 
-        if it.next().is_some() {
-            guess
+        // If we have a guess, and our next segment is "tar"...
+        if guess.is_some() && it.next() == Some("tar") {
+            // ...And if there's another segment before it...
+            if it.next().is_some() {
+                // ...then we have a `.tar.{fmt}`, so we convert our guess a tar-based format
+                guess.map(|pkgfmt| match pkgfmt {
+                    PkgFmt::Bz2 => PkgFmt::Tbz2,
+                    PkgFmt::Gz => PkgFmt::Tgz,
+                    PkgFmt::Xz => PkgFmt::Txz,
+                    PkgFmt::Zst => PkgFmt::Tzstd,
+                    _ => pkgfmt,
+                })
+            } else {
+                // Otherwise, we can assume our pkg_url to be malformed
+                None
+            }
         } else {
-            None
+            // Otherwise, assume our guess is correct.
+            guess
         }
     }
 }
@@ -103,6 +134,10 @@ impl PkgFmt {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PkgFmtDecomposed {
     Tar(TarBasedFmt),
+    Bz2,
+    Gz,
+    Xz,
+    Zst,
     Bin,
     Zip,
 }

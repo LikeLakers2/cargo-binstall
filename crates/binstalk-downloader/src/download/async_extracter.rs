@@ -7,10 +7,14 @@ use std::{
 };
 
 use bytes::Bytes;
+use bzip2::bufread::BzDecoder;
+use flate2::bufread::GzDecoder;
 use futures_util::Stream;
 use tempfile::tempfile as create_tmpfile;
 use tokio::sync::mpsc;
 use tracing::debug;
+use xz2::bufread::XzDecoder;
+use zstd::stream::Decoder as ZstdDecoder;
 
 use super::{extracter::*, DownloadError, ExtractedFiles, TarBasedFmt};
 use crate::{
@@ -49,6 +53,46 @@ where
     })
     .await
 }
+
+macro_rules! single_file_extractor {
+    (
+        $function_name:ident,
+        $debug_compressed_type:expr,
+        $decoder_initializer:path
+        $(, $decoder_initializer_post:tt)?
+    ) => {
+        pub async fn $function_name <S>(stream: S, path: &Path) -> Result<ExtractedFiles, DownloadError>
+        where
+            S: Stream<Item = Result<Bytes, DownloadError>> + Unpin + Send + Sync,
+        {
+            debug!(
+                "Extracting from {}-compressed archive to `{}`",
+                $debug_compressed_type,
+                path.display(),
+            );
+
+            extract_with_blocking_decoder(stream, path, |rx, path| {
+                let mut extracted_files = ExtractedFiles::new();
+
+                let mut extractor =
+                    $decoder_initializer (StreamReadable::new(rx)) $($decoder_initializer_post)?;
+
+                extracted_files.add_file(Path::new(path.file_name().unwrap()));
+
+                let mut destination = fs::File::create(path)?;
+                io::copy(&mut extractor, &mut destination)?;
+
+                Ok(extracted_files)
+            })
+            .await
+        }
+    };
+}
+
+single_file_extractor!(extract_bz2, "bzip2", BzDecoder::new);
+single_file_extractor!(extract_gz, "gzip", GzDecoder::new);
+single_file_extractor!(extract_xz, "xz", XzDecoder::new);
+single_file_extractor!(extract_zst, "zstd", ZstdDecoder::with_buffer, ?);
 
 pub async fn extract_tar_based_stream<S>(
     stream: S,
